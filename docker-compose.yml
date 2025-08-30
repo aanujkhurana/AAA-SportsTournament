@@ -1,0 +1,60 @@
+version: '3.8'
+
+services:
+  mongodb:
+    image: mongo:7
+    container_name: tournament-mongodb
+    restart: unless-stopped
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: admin
+      MONGO_INITDB_ROOT_PASSWORD: password123
+      MONGO_INITDB_DATABASE: tournament_manager
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongodb_data:/data/db
+    networks:
+      - tournament-network
+
+  backend:
+    build: .
+    container_name: tournament-backend
+    restart: unless-stopped
+    environment:
+      NODE_ENV: production
+      PORT: 5000
+      MONGODB_URI: mongodb://admin:password123@mongodb:27017/tournament_manager?authSource=admin
+      JWT_SECRET: your-super-secret-jwt-key-change-in-production
+    ports:
+      - "5000:5000"
+    depends_on:
+      - mongodb
+    networks:
+      - tournament-network
+    volumes:
+      - ./server:/app
+      - /app/node_modules
+
+  # Development services
+  mongodb-dev:
+    image: mongo:7
+    container_name: tournament-mongodb-dev
+    restart: unless-stopped
+    environment:
+      MONGO_INITDB_DATABASE: tournament_manager
+    ports:
+      - "27018:27017"
+    volumes:
+      - mongodb_dev_data:/data/db
+    networks:
+      - tournament-network
+    profiles:
+      - dev
+
+volumes:
+  mongodb_data:
+  mongodb_dev_data:
+
+networks:
+  tournament-network:
+    driver: bridge

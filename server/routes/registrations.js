@@ -7,6 +7,7 @@ const Registration = require('../models/Registration');
 const Tournament = require('../models/Tournament');
 const User = require('../models/User');
 const { auth, adminAuth } = require('../middleware/auth');
+const emailService = require('../services/emailService');
 
 const router = express.Router();
 
@@ -136,16 +137,31 @@ router.post('/individual', [
     // Populate registration with user details
     await registration.populate('captain', 'firstName lastName email phone');
 
+    const paymentInstructions = {
+      bankDetails: tournament.organizerBankDetails,
+      paymentReference: registration.paymentReference,
+      amount: tournament.entryFee,
+      instructions: `Please transfer $${tournament.entryFee} to the account details provided and include the reference "${registration.paymentReference}" in your transfer description.`
+    };
+
+    // Send registration confirmation email
+    try {
+      await emailService.sendRegistrationConfirmation(
+        req.user,
+        tournament,
+        registration,
+        paymentInstructions
+      );
+    } catch (emailError) {
+      console.error('Failed to send registration confirmation email:', emailError);
+      // Don't fail the registration if email fails
+    }
+
     res.status(201).json({
       success: true,
       message: 'Individual registration successful',
       registration: registration,
-      paymentInstructions: {
-        bankDetails: tournament.organizerBankDetails,
-        paymentReference: registration.paymentReference,
-        amount: tournament.entryFee,
-        instructions: `Please transfer $${tournament.entryFee} to the account details provided and include the reference "${registration.paymentReference}" in your transfer description.`
-      }
+      paymentInstructions: paymentInstructions
     });
 
   } catch (error) {
@@ -282,16 +298,31 @@ router.post('/team', [
       { path: 'teamMembers', select: 'firstName lastName email phone' }
     ]);
 
+    const paymentInstructions = {
+      bankDetails: tournament.organizerBankDetails,
+      paymentReference: registration.paymentReference,
+      amount: tournament.entryFee,
+      instructions: `Please transfer $${tournament.entryFee} to the account details provided and include the reference "${registration.paymentReference}" in your transfer description.`
+    };
+
+    // Send registration confirmation email
+    try {
+      await emailService.sendRegistrationConfirmation(
+        req.user,
+        tournament,
+        registration,
+        paymentInstructions
+      );
+    } catch (emailError) {
+      console.error('Failed to send registration confirmation email:', emailError);
+      // Don't fail the registration if email fails
+    }
+
     res.status(201).json({
       success: true,
       message: 'Team registration successful',
       registration: registration,
-      paymentInstructions: {
-        bankDetails: tournament.organizerBankDetails,
-        paymentReference: registration.paymentReference,
-        amount: tournament.entryFee,
-        instructions: `Please transfer $${tournament.entryFee} to the account details provided and include the reference "${registration.paymentReference}" in your transfer description.`
-      }
+      paymentInstructions: paymentInstructions
     });
 
   } catch (error) {
@@ -304,8 +335,7 @@ router.post('/team', [
   }
 });
 
-module.exports = router;// Upload p
-ayment confirmation
+// Upload payment confirmation
 router.post('/:registrationId/payment-confirmation', [
   auth,
   upload.single('paymentConfirmation')
@@ -499,6 +529,19 @@ router.put('/:registrationId/verify-payment', [
       { path: 'tournament', select: 'name sport' }
     ]);
 
+    // Send payment verification email
+    try {
+      await emailService.sendPaymentVerificationEmail(
+        registration.captain,
+        registration.tournament,
+        registration,
+        paymentStatus === 'Confirmed'
+      );
+    } catch (emailError) {
+      console.error('Failed to send payment verification email:', emailError);
+      // Don't fail the verification if email fails
+    }
+
     res.json({
       success: true,
       message: `Payment ${paymentStatus.toLowerCase()} successfully`,
@@ -611,3 +654,5 @@ router.delete('/:registrationId', auth, async (req, res) => {
 });
 
 module.exports = router;
+module
+.exports = router;

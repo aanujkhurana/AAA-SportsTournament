@@ -4,6 +4,13 @@ const Tournament = require('../models/Tournament');
 const Team = require('../models/Team');
 const Registration = require('../models/Registration');
 const { auth, adminAuth } = require('../middleware/auth');
+const {
+  createTournament,
+  updateTournament,
+  getTournamentStandings,
+  calculateFinalStandings,
+  distributePrizes
+} = require('../controllers/tournamentController');
 
 const router = express.Router();
 
@@ -365,53 +372,52 @@ router.get('/:id', async (req, res) => {
 
 // Create tournament (admin only)
 router.post('/', adminAuth, [
-  body('name').notEmpty().trim(),
-  body('sport').isIn(['football', 'basketball', 'tennis', 'cricket', 'volleyball', 'other']),
-  body('format').isIn(['knockout', 'league', 'group-knockout']),
-  body('location').notEmpty().trim(),
-  body('startDate').isISO8601(),
-  body('endDate').isISO8601(),
-  body('registrationDeadline').isISO8601()
-], async (req, res) => {
-  try {
-    const errors = validationResult(req);
-    if (!errors.isEmpty()) {
-      return res.status(400).json({ errors: errors.array() });
-    }
-
-    const tournament = new Tournament({
-      ...req.body,
-      createdBy: req.user._id,
-      status: 'registration-open'
-    });
-
-    await tournament.save();
-    await tournament.populate('createdBy', 'name email');
-    
-    res.status(201).json(tournament);
-  } catch (error) {
-    res.status(500).json({ message: 'Server error', error: error.message });
-  }
-});
+  body('name').notEmpty().trim().withMessage('Tournament name is required'),
+  body('sport').isIn([
+    'Basketball', 'Football', 'Tennis', 'Volleyball', 'Cricket', 
+    'Rugby', 'Netball', 'Badminton', 'Table Tennis', 'Squash'
+  ]).withMessage('Invalid sport selection'),
+  body('format').isIn([
+    'Single Elimination', 'Double Elimination', 'Round Robin', 'Group Stage + Knockout'
+  ]).withMessage('Invalid tournament format'),
+  body('venue').notEmpty().trim().withMessage('Venue is required'),
+  body('startDate').isISO8601().withMessage('Valid start date is required'),
+  body('endDate').isISO8601().withMessage('Valid end date is required'),
+  body('registrationDeadline').isISO8601().withMessage('Valid registration deadline is required'),
+  body('address.street').notEmpty().trim().withMessage('Street address is required'),
+  body('address.city').notEmpty().trim().withMessage('City is required'),
+  body('address.state').isIn([
+    'New South Wales', 'Victoria', 'Queensland', 'Western Australia',
+    'South Australia', 'Tasmania', 'Australian Capital Territory', 'Northern Territory'
+  ]).withMessage('Valid Australian state is required'),
+  body('address.postcode').matches(/^\d{4}$/).withMessage('Valid 4-digit postcode is required'),
+  body('maxParticipants').isInt({ min: 2 }).withMessage('At least 2 participants required'),
+  body('entryFee').isFloat({ min: 0 }).withMessage('Entry fee must be non-negative'),
+  body('prizePool.first').isFloat({ min: 0 }).withMessage('First place prize must be non-negative'),
+  body('organizerBankDetails.accountName').notEmpty().trim().withMessage('Account name is required'),
+  body('organizerBankDetails.bsb').matches(/^\d{3}-?\d{3}$/).withMessage('Valid BSB format required'),
+  body('organizerBankDetails.accountNumber').matches(/^\d{6,10}$/).withMessage('Valid account number required'),
+  body('organizerBankDetails.bankName').notEmpty().trim().withMessage('Bank name is required')
+], createTournament);
 
 // Update tournament (admin only)
-router.put('/:id', adminAuth, async (req, res) => {
-  try {
-    const tournament = await Tournament.findByIdAndUpdate(
-      req.params.id,
-      req.body,
-      { new: true, runValidators: true }
-    ).populate('createdBy', 'name email');
-
-    if (!tournament) {
-      return res.status(404).json({ message: 'Tournament not found' });
-    }
-
-    res.json(tournament);
-  } catch (error) {
-    res.status(500).json({ message: 'Server error', error: error.message });
-  }
-});
+router.put('/:id', adminAuth, [
+  body('name').optional().notEmpty().trim(),
+  body('sport').optional().isIn([
+    'Basketball', 'Football', 'Tennis', 'Volleyball', 'Cricket', 
+    'Rugby', 'Netball', 'Badminton', 'Table Tennis', 'Squash'
+  ]),
+  body('format').optional().isIn([
+    'Single Elimination', 'Double Elimination', 'Round Robin', 'Group Stage + Knockout'
+  ]),
+  body('venue').optional().notEmpty().trim(),
+  body('startDate').optional().isISO8601(),
+  body('endDate').optional().isISO8601(),
+  body('registrationDeadline').optional().isISO8601(),
+  body('maxParticipants').optional().isInt({ min: 2 }),
+  body('entryFee').optional().isFloat({ min: 0 }),
+  body('prizePool.first').optional().isFloat({ min: 0 })
+], updateTournament);
 
 // Update tournament status based on capacity
 router.put('/:id/capacity', auth, async (req, res) => {
@@ -497,6 +503,15 @@ router.get('/featured/highlights', async (req, res) => {
     res.status(500).json({ message: 'Server error', error: error.message });
   }
 });
+
+// Get tournament standings
+router.get('/:id/standings', auth, getTournamentStandings);
+
+// Calculate final standings and complete tournament
+router.post('/:id/calculate-standings', adminAuth, calculateFinalStandings);
+
+// Distribute prizes
+router.post('/:id/distribute-prizes', adminAuth, distributePrizes);
 
 // Delete tournament (admin only)
 router.delete('/:id', adminAuth, async (req, res) => {

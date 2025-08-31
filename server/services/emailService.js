@@ -3,7 +3,7 @@ const nodemailer = require('nodemailer');
 class EmailService {
   constructor() {
     // Configure email transporter (using Gmail as example)
-    this.transporter = nodemailer.createTransporter({
+    this.transporter = nodemailer.createTransport({
       service: 'gmail',
       auth: {
         user: process.env.EMAIL_USER,
@@ -32,7 +32,7 @@ class EmailService {
     }
   }
 
-  async sendPaymentVerificationEmail(user, tournament, registration, isApproved) {
+  async sendPaymentVerificationEmail(user, tournament, registration, isApproved, verificationNotes) {
     const subject = isApproved 
       ? `Payment Confirmed - ${tournament.name}` 
       : `Payment Issue - ${tournament.name}`;
@@ -41,7 +41,7 @@ class EmailService {
       from: process.env.EMAIL_FROM || 'noreply@sportstournament.com.au',
       to: user.email,
       subject: subject,
-      html: this.generatePaymentVerificationHTML(user, tournament, registration, isApproved)
+      html: this.generatePaymentVerificationHTML(user, tournament, registration, isApproved, verificationNotes)
     };
 
     try {
@@ -75,6 +75,98 @@ class EmailService {
         }
       } catch (error) {
         console.error(`Error sending tournament update email to ${user.email}:`, error);
+      }
+    }
+  }
+
+  async sendTournamentAnnouncementEmail(users, tournament, title, message) {
+    const subject = `📢 ${title} - ${tournament.name}`;
+
+    for (const user of users) {
+      const mailOptions = {
+        from: process.env.EMAIL_FROM || 'noreply@sportstournament.com.au',
+        to: user.email,
+        subject: subject,
+        html: this.generateAnnouncementHTML(user, tournament, title, message)
+      };
+
+      try {
+        if (process.env.NODE_ENV === 'production') {
+          await this.transporter.sendMail(mailOptions);
+        } else {
+          console.log('Tournament announcement email would be sent in production:', mailOptions);
+        }
+      } catch (error) {
+        console.error(`Error sending tournament announcement email to ${user.email}:`, error);
+      }
+    }
+  }
+
+  async sendWeatherVenueUpdateEmail(users, tournament, updateType, title, message, details = {}) {
+    const subject = `🚨 URGENT: ${title} - ${tournament.name}`;
+
+    for (const user of users) {
+      const mailOptions = {
+        from: process.env.EMAIL_FROM || 'noreply@sportstournament.com.au',
+        to: user.email,
+        subject: subject,
+        html: this.generateWeatherVenueUpdateHTML(user, tournament, updateType, title, message, details)
+      };
+
+      try {
+        if (process.env.NODE_ENV === 'production') {
+          await this.transporter.sendMail(mailOptions);
+        } else {
+          console.log('Weather/venue update email would be sent in production:', mailOptions);
+        }
+      } catch (error) {
+        console.error(`Error sending weather/venue update email to ${user.email}:`, error);
+      }
+    }
+  }
+
+  async sendScheduleChangeEmail(users, tournament, fixture, changeDetails) {
+    const subject = `⏰ Match Schedule Change - ${tournament.name}`;
+
+    for (const user of users) {
+      const mailOptions = {
+        from: process.env.EMAIL_FROM || 'noreply@sportstournament.com.au',
+        to: user.email,
+        subject: subject,
+        html: this.generateScheduleChangeHTML(user, tournament, fixture, changeDetails)
+      };
+
+      try {
+        if (process.env.NODE_ENV === 'production') {
+          await this.transporter.sendMail(mailOptions);
+        } else {
+          console.log('Schedule change email would be sent in production:', mailOptions);
+        }
+      } catch (error) {
+        console.error(`Error sending schedule change email to ${user.email}:`, error);
+      }
+    }
+  }
+
+  async sendMatchResultEmail(users, tournament, fixture, result) {
+    const subject = `🏆 Match Result - ${tournament.name}`;
+
+    for (const user of users) {
+      const mailOptions = {
+        from: process.env.EMAIL_FROM || 'noreply@sportstournament.com.au',
+        to: user.email,
+        subject: subject,
+        html: this.generateMatchResultHTML(user, tournament, fixture, result)
+      };
+
+      try {
+        if (process.env.NODE_ENV === 'production') {
+          await this.transporter.sendMail(mailOptions);
+        } else {
+          console.log('Match result email would be sent in production:', mailOptions);
+        }
+      } catch (error) {
+        console.error(`Error sending match result email to ${user.email}:`, error);
       }
     }
   }
@@ -164,7 +256,7 @@ class EmailService {
     `;
   }
 
-  generatePaymentVerificationHTML(user, tournament, registration, isApproved) {
+  generatePaymentVerificationHTML(user, tournament, registration, isApproved, verificationNotes) {
     const statusColor = isApproved ? '#4caf50' : '#f44336';
     const statusText = isApproved ? 'Payment Confirmed ✅' : 'Payment Issue ❌';
     const message = isApproved 
@@ -206,6 +298,12 @@ class EmailService {
               <div style="background: #ffebee; border: 2px solid #f44336; border-radius: 8px; padding: 20px; margin: 20px 0;">
                 <h3>Action Required</h3>
                 <p>Please contact the tournament organizer to resolve the payment issue. You can also try uploading a clearer payment confirmation via your dashboard.</p>
+                ${verificationNotes ? `
+                  <div style="background: white; padding: 15px; border-radius: 5px; margin-top: 15px;">
+                    <h4>Organizer Notes:</h4>
+                    <p style="font-style: italic;">"${verificationNotes}"</p>
+                  </div>
+                ` : ''}
               </div>
             `}
 
@@ -257,6 +355,244 @@ class EmailService {
 
             <div style="text-align: center; margin: 30px 0;">
               <a href="${process.env.CLIENT_URL}/tournaments/${tournament._id}" class="btn">View Tournament Details</a>
+            </div>
+          </div>
+          
+          <div class="footer">
+            <p>Australian Sports Tournament Platform</p>
+          </div>
+        </div>
+      </body>
+      </html>
+    `;
+  }
+
+  generateAnnouncementHTML(user, tournament, title, message) {
+    return `
+      <!DOCTYPE html>
+      <html>
+      <head>
+        <meta charset="utf-8">
+        <title>Tournament Announcement</title>
+        <style>
+          body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; }
+          .container { max-width: 600px; margin: 0 auto; padding: 20px; }
+          .header { background: linear-gradient(135deg, #ff6b6b 0%, #ee5a24 100%); color: white; padding: 30px; text-align: center; border-radius: 10px 10px 0 0; }
+          .content { background: #f8f9fa; padding: 30px; border-radius: 0 0 10px 10px; }
+          .announcement-box { background: #fff3cd; border: 2px solid #ffc107; border-radius: 8px; padding: 20px; margin: 20px 0; }
+          .footer { text-align: center; margin-top: 30px; color: #666; }
+          .btn { display: inline-block; background: #2196f3; color: white; padding: 12px 24px; text-decoration: none; border-radius: 5px; margin: 10px 0; }
+        </style>
+      </head>
+      <body>
+        <div class="container">
+          <div class="header">
+            <h1>📢 Tournament Announcement</h1>
+            <p>${tournament.name}</p>
+          </div>
+          
+          <div class="content">
+            <h2>G'day ${user.firstName}!</h2>
+            <p>Important announcement from the tournament organizers:</p>
+            
+            <div class="announcement-box">
+              <h3>${title}</h3>
+              <p>${message}</p>
+            </div>
+
+            <div style="text-align: center; margin: 30px 0;">
+              <a href="${process.env.CLIENT_URL}/tournaments/${tournament._id}" class="btn">View Tournament</a>
+            </div>
+          </div>
+          
+          <div class="footer">
+            <p>Australian Sports Tournament Platform</p>
+          </div>
+        </div>
+      </body>
+      </html>
+    `;
+  }
+
+  generateWeatherVenueUpdateHTML(user, tournament, updateType, title, message, details) {
+    const isWeather = updateType === 'weather';
+    const headerColor = isWeather ? '#ff9800' : '#9c27b0';
+    const icon = isWeather ? '🌦️' : '📍';
+
+    return `
+      <!DOCTYPE html>
+      <html>
+      <head>
+        <meta charset="utf-8">
+        <title>Urgent Tournament Update</title>
+        <style>
+          body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; }
+          .container { max-width: 600px; margin: 0 auto; padding: 20px; }
+          .header { background: ${headerColor}; color: white; padding: 30px; text-align: center; border-radius: 10px 10px 0 0; }
+          .content { background: #f8f9fa; padding: 30px; border-radius: 0 0 10px 10px; }
+          .urgent-box { background: #ffebee; border: 3px solid #f44336; border-radius: 8px; padding: 20px; margin: 20px 0; }
+          .details-box { background: white; padding: 15px; border-radius: 5px; margin: 15px 0; }
+          .footer { text-align: center; margin-top: 30px; color: #666; }
+          .btn { display: inline-block; background: #f44336; color: white; padding: 12px 24px; text-decoration: none; border-radius: 5px; margin: 10px 0; }
+        </style>
+      </head>
+      <body>
+        <div class="container">
+          <div class="header">
+            <h1>🚨 URGENT UPDATE ${icon}</h1>
+            <p>${tournament.name}</p>
+          </div>
+          
+          <div class="content">
+            <h2>G'day ${user.firstName}!</h2>
+            <p><strong>This is an urgent update regarding your tournament:</strong></p>
+            
+            <div class="urgent-box">
+              <h3>${title}</h3>
+              <p>${message}</p>
+              
+              ${details.newVenue ? `
+                <div class="details-box">
+                  <h4>📍 New Venue Information:</h4>
+                  <p><strong>${details.newVenue}</strong></p>
+                </div>
+              ` : ''}
+              
+              ${details.weatherCondition ? `
+                <div class="details-box">
+                  <h4>🌦️ Weather Update:</h4>
+                  <p>${details.weatherCondition}</p>
+                </div>
+              ` : ''}
+            </div>
+
+            <p><strong>Please make note of these changes and plan accordingly.</strong></p>
+
+            <div style="text-align: center; margin: 30px 0;">
+              <a href="${process.env.CLIENT_URL}/tournaments/${tournament._id}" class="btn">View Updated Details</a>
+            </div>
+          </div>
+          
+          <div class="footer">
+            <p>Australian Sports Tournament Platform</p>
+          </div>
+        </div>
+      </body>
+      </html>
+    `;
+  }
+
+  generateScheduleChangeHTML(user, tournament, fixture, changeDetails) {
+    return `
+      <!DOCTYPE html>
+      <html>
+      <head>
+        <meta charset="utf-8">
+        <title>Match Schedule Change</title>
+        <style>
+          body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; }
+          .container { max-width: 600px; margin: 0 auto; padding: 20px; }
+          .header { background: linear-gradient(135deg, #3f51b5 0%, #2196f3 100%); color: white; padding: 30px; text-align: center; border-radius: 10px 10px 0 0; }
+          .content { background: #f8f9fa; padding: 30px; border-radius: 0 0 10px 10px; }
+          .schedule-box { background: #e3f2fd; border: 2px solid #2196f3; border-radius: 8px; padding: 20px; margin: 20px 0; }
+          .change-highlight { background: #fff3cd; border-left: 4px solid #ffc107; padding: 15px; margin: 15px 0; }
+          .footer { text-align: center; margin-top: 30px; color: #666; }
+          .btn { display: inline-block; background: #2196f3; color: white; padding: 12px 24px; text-decoration: none; border-radius: 5px; margin: 10px 0; }
+        </style>
+      </head>
+      <body>
+        <div class="container">
+          <div class="header">
+            <h1>⏰ Schedule Change</h1>
+            <p>${tournament.name}</p>
+          </div>
+          
+          <div class="content">
+            <h2>G'day ${user.firstName}!</h2>
+            <p>There's been a change to your match schedule:</p>
+            
+            <div class="schedule-box">
+              <h3>Match Details</h3>
+              <p><strong>Tournament:</strong> ${tournament.name}</p>
+              <p><strong>Round:</strong> ${fixture.round}</p>
+              
+              ${changeDetails.originalDate ? `
+                <div class="change-highlight">
+                  <h4>⚠️ Schedule Change:</h4>
+                  <p><strong>Original Time:</strong> ${new Date(changeDetails.originalDate).toLocaleString('en-AU')}</p>
+                  <p><strong>New Time:</strong> ${new Date(changeDetails.newDate).toLocaleString('en-AU')}</p>
+                </div>
+              ` : ''}
+              
+              ${changeDetails.venue ? `
+                <p><strong>Venue:</strong> ${changeDetails.venue}</p>
+              ` : ''}
+            </div>
+
+            <p>Please update your calendar and make sure you're available at the new time.</p>
+
+            <div style="text-align: center; margin: 30px 0;">
+              <a href="${process.env.CLIENT_URL}/dashboard?tab=schedule" class="btn">View My Schedule</a>
+            </div>
+          </div>
+          
+          <div class="footer">
+            <p>Australian Sports Tournament Platform</p>
+          </div>
+        </div>
+      </body>
+      </html>
+    `;
+  }
+
+  generateMatchResultHTML(user, tournament, fixture, result) {
+    return `
+      <!DOCTYPE html>
+      <html>
+      <head>
+        <meta charset="utf-8">
+        <title>Match Result</title>
+        <style>
+          body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; }
+          .container { max-width: 600px; margin: 0 auto; padding: 20px; }
+          .header { background: linear-gradient(135deg, #4caf50 0%, #8bc34a 100%); color: white; padding: 30px; text-align: center; border-radius: 10px 10px 0 0; }
+          .content { background: #f8f9fa; padding: 30px; border-radius: 0 0 10px 10px; }
+          .result-box { background: white; border: 2px solid #4caf50; border-radius: 8px; padding: 20px; margin: 20px 0; }
+          .winner-highlight { background: #e8f5e8; border-left: 4px solid #4caf50; padding: 15px; margin: 15px 0; }
+          .footer { text-align: center; margin-top: 30px; color: #666; }
+          .btn { display: inline-block; background: #4caf50; color: white; padding: 12px 24px; text-decoration: none; border-radius: 5px; margin: 10px 0; }
+        </style>
+      </head>
+      <body>
+        <div class="container">
+          <div class="header">
+            <h1>🏆 Match Result</h1>
+            <p>${tournament.name}</p>
+          </div>
+          
+          <div class="content">
+            <h2>G'day ${user.firstName}!</h2>
+            <p>Your match result has been posted:</p>
+            
+            <div class="result-box">
+              <h3>Match Result - Round ${fixture.round}</h3>
+              <p><strong>Score:</strong> ${result.participant1Score} - ${result.participant2Score}</p>
+              <p><strong>Completed:</strong> ${new Date(result.completedAt).toLocaleString('en-AU')}</p>
+              
+              ${fixture.winner ? `
+                <div class="winner-highlight">
+                  <h4>🎉 Congratulations!</h4>
+                  <p>You've advanced to the next round!</p>
+                </div>
+              ` : ''}
+              
+              ${result.notes ? `
+                <p><strong>Notes:</strong> ${result.notes}</p>
+              ` : ''}
+            </div>
+
+            <div style="text-align: center; margin: 30px 0;">
+              <a href="${process.env.CLIENT_URL}/tournaments/${tournament._id}" class="btn">View Tournament Bracket</a>
             </div>
           </div>
           

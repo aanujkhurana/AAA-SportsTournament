@@ -4,23 +4,19 @@ const Fixture = require('../models/Fixture');
 const Tournament = require('../models/Tournament');
 const Team = require('../models/Team');
 const { auth, adminAuth } = require('../middleware/auth');
+const {
+  generateFixtures,
+  updateFixtureResult,
+  getTournamentFixtures,
+  updateFixtureStatus,
+  updateFixtureSchedule,
+  getBracketData
+} = require('../controllers/fixtureController');
 
 const router = express.Router();
 
 // Get fixtures for a tournament
-router.get('/tournament/:tournamentId', async (req, res) => {
-  try {
-    const fixtures = await Fixture.find({ tournament: req.params.tournamentId })
-      .populate('homeTeam', 'name')
-      .populate('awayTeam', 'name')
-      .populate('winner', 'name')
-      .sort({ matchNumber: 1 });
-    
-    res.json(fixtures);
-  } catch (error) {
-    res.status(500).json({ message: 'Server error', error: error.message });
-  }
-});
+router.get('/tournament/:tournamentId', getTournamentFixtures);
 
 // Get fixture by ID
 router.get('/:id', async (req, res) => {
@@ -90,54 +86,27 @@ router.post('/', adminAuth, [
   }
 });
 
-// Update fixture score (admin only)
-router.put('/:id/score', adminAuth, [
-  body('homeScore').isInt({ min: 0 }),
-  body('awayScore').isInt({ min: 0 })
-], async (req, res) => {
-  try {
-    const errors = validationResult(req);
-    if (!errors.isEmpty()) {
-      return res.status(400).json({ errors: errors.array() });
-    }
+// Update fixture result (admin only)
+router.put('/:id/result', adminAuth, [
+  body('result.participant1Score').isInt({ min: 0 }).withMessage('Valid participant 1 score required'),
+  body('result.participant2Score').isInt({ min: 0 }).withMessage('Valid participant 2 score required'),
+  body('result.completedAt').optional().isISO8601(),
+  body('result.notes').optional().isString(),
+  body('result.forfeit').optional().isBoolean(),
+  body('result.overtime').optional().isBoolean()
+], updateFixtureResult);
 
-    const { homeScore, awayScore, status } = req.body;
-    
-    const updateData = {
-      homeScore,
-      awayScore,
-      status: status || 'completed'
-    };
+// Update fixture status (admin only)
+router.put('/:id/status', adminAuth, [
+  body('status').isIn(['Scheduled', 'InProgress', 'Completed', 'Cancelled', 'Postponed'])
+    .withMessage('Valid status required')
+], updateFixtureStatus);
 
-    // Determine winner
-    if (homeScore > awayScore) {
-      const fixture = await Fixture.findById(req.params.id);
-      updateData.winner = fixture.homeTeam;
-    } else if (awayScore > homeScore) {
-      const fixture = await Fixture.findById(req.params.id);
-      updateData.winner = fixture.awayTeam;
-    }
-
-    const fixture = await Fixture.findByIdAndUpdate(
-      req.params.id,
-      updateData,
-      { new: true }
-    ).populate([
-      { path: 'tournament', select: 'name sport' },
-      { path: 'homeTeam', select: 'name' },
-      { path: 'awayTeam', select: 'name' },
-      { path: 'winner', select: 'name' }
-    ]);
-
-    if (!fixture) {
-      return res.status(404).json({ message: 'Fixture not found' });
-    }
-
-    res.json(fixture);
-  } catch (error) {
-    res.status(500).json({ message: 'Server error', error: error.message });
-  }
-});
+// Update fixture schedule (admin only)
+router.put('/:id/schedule', adminAuth, [
+  body('scheduledDate').optional().isISO8601().withMessage('Valid date required'),
+  body('venue').optional().isString().withMessage('Valid venue required')
+], updateFixtureSchedule);
 
 // Update fixture details (admin only)
 router.put('/:id', adminAuth, async (req, res) => {
@@ -148,9 +117,9 @@ router.put('/:id', adminAuth, async (req, res) => {
       { new: true, runValidators: true }
     ).populate([
       { path: 'tournament', select: 'name sport' },
-      { path: 'homeTeam', select: 'name' },
-      { path: 'awayTeam', select: 'name' },
-      { path: 'winner', select: 'name' }
+      { path: 'participant1', populate: { path: 'captain', select: 'firstName lastName' } },
+      { path: 'participant2', populate: { path: 'captain', select: 'firstName lastName' } },
+      { path: 'winner', populate: { path: 'captain', select: 'firstName lastName' } }
     ]);
 
     if (!fixture) {
@@ -179,92 +148,9 @@ router.delete('/:id', adminAuth, async (req, res) => {
 });
 
 // Generate fixtures for tournament (admin only)
-router.post('/generate/:tournamentId', adminAuth, async (req, res) => {
-  try {
-    const tournament = await Tournament.findById(req.params.tournamentId);
-    if (!tournament) {
-      return res.status(404).json({ message: 'Tournament not found' });
-    }
+router.post('/generate/:tournamentId', adminAuth, generateFixtures);
 
-    const teams = await Team.find({ 
-      tournament: req.params.tournamentId,
-      status: 'confirmed'
-    });
-
-    if (teams.length < 2) {
-      return res.status(400).json({ message: 'At least 2 confirmed teams required' });
-    }
-
-    // Clear existing fixtures
-    await Fixture.deleteMany({ tournament: req.params.tournamentId });
-
-    const fixtures = [];
-    let matchNumber = 1;
-
-    if (tournament.format === 'league') {
-      // Round-robin format
-      for (let i = 0; i < teams.length; i++) {
-        for (let j = i + 1; j < teams.length; j++) {
-          const scheduledDate = new Date(tournament.startDate);
-          scheduledDate.setDate(scheduledDate.getDate() + Math.floor((matchNumber - 1) / 2));
-
-          fixtures.push({
-            tournament: req.params.tournamentId,
-            round: 'League',
-            matchNumber: matchNumber++,
-            homeTeam: teams[i]._id,
-            awayTeam: teams[j]._id,
-            scheduledDate,
-            venue: tournament.location
-          });
-        }
-      }
-    } else if (tournament.format === 'knockout') {
-      // Single elimination
-      const rounds = Math.ceil(Math.log2(teams.length));
-      let currentRound = teams.slice();
-      
-      for (let round = 1; round <= rounds; round++) {
-        const roundName = round === rounds ? 'Final' : 
-                         round === rounds - 1 ? 'Semi-Final' : 
-                         `Round ${round}`;
-        
-        for (let i = 0; i < currentRound.length; i += 2) {
-          if (i + 1 < currentRound.length) {
-            const scheduledDate = new Date(tournament.startDate);
-            scheduledDate.setDate(scheduledDate.getDate() + (round - 1) * 3);
-
-            fixtures.push({
-              tournament: req.params.tournamentId,
-              round: roundName,
-              matchNumber: matchNumber++,
-              homeTeam: currentRound[i]._id,
-              awayTeam: currentRound[i + 1]._id,
-              scheduledDate,
-              venue: tournament.location
-            });
-          }
-        }
-        
-        // For knockout, we'd need to handle progression after matches are played
-        break; // For now, just create first round
-      }
-    }
-
-    const createdFixtures = await Fixture.insertMany(fixtures);
-    
-    // Populate the created fixtures
-    const populatedFixtures = await Fixture.find({ 
-      tournament: req.params.tournamentId 
-    }).populate([
-      { path: 'homeTeam', select: 'name' },
-      { path: 'awayTeam', select: 'name' }
-    ]).sort({ matchNumber: 1 });
-
-    res.status(201).json(populatedFixtures);
-  } catch (error) {
-    res.status(500).json({ message: 'Server error', error: error.message });
-  }
-});
+// Get bracket visualization data
+router.get('/bracket/:tournamentId', getBracketData);
 
 module.exports = router;
